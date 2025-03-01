@@ -1,0 +1,23 @@
+name: papGAN
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.8
+  - pytorch
+  - torchvision
+  - torchaudio
+  - cudatoolkit=11.3
+  - pip
+  - numpy
+  - pillow
+  - tqdm
+  - matplotlib
+  - pathlib
+  - pip:
+    - pytorch-fid
+    - dominate>=2.4.0
+    - visdom>=0.1.8.9
+    - tensorboard>=2.0.0
