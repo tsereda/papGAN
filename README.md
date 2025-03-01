@@ -1,4 +1,4 @@
-
+data: https://drive.google.com/file/d/1yeHKqXVf9YhS6FAqVGezKrSaNGp6v-xX/view?usp=sharing
 
 Do not run preprocessing on login node!
 
@@ -22,7 +22,8 @@ sbatch train.sh
 on local machine 
 ssh -L 8097:localhost:8097 user@lawrence.usd.edu
 
+
 in the login node, using the above shell
-ssh -L 8097:localhost:8097 gpu001
+ssh -L 8097:localhost:8097 gpu00#
 
 browse to http://localhost:8097/
