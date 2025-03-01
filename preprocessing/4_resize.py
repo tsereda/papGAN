@@ -4,8 +4,8 @@ from pathlib import Path
 from tqdm import tqdm
 
 # Define paths
-source_dir = '/cyclegan_dataset_matched'
-target_dir = '/cyclegan_dataset_256'
+source_dir = 'cyclegan_dataset_matched'
+target_dir = 'cyclegan_dataset_256'
 size = (256, 256)
 
 # Create target directories

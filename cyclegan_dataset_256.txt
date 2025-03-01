@@ -1,0 +1,11 @@
+Checking trainA...
+Unique sizes found: {(256, 256)}
+Total images: 6896
+
+Checking trainB...
+Unique sizes found: {(256, 256)}
+Total images: 6896
+
+Checking test_healthy...
+Unique sizes found: {(256, 256)}
+Total images: 11310
