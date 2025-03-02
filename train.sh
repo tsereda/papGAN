@@ -7,7 +7,7 @@
 #SBATCH --mem=16G # Adjust memory as needed
 #SBATCH --time=20:00:00
 #SBATCH --partition=gpu
-#SBATCH --gres=gpu:2 # Request 1 GPU
+#SBATCH --gres=gpu:2 # Request 2 GPUs
 
 #SBATCH --output=logs/train_%j.out
 #SBATCH --error=logs/train_%j.err
@@ -30,7 +30,8 @@ python pytorch-CycleGAN-and-pix2pix/train.py \
     --dataroot cyclegan_dataset_256_split/ \
     --name healthy2unhealthy_cyclegan \
     --model cycle_gan \
-    --batch_size 6 \
+    --batch_size 12 \
+    --gpu_ids 0,1 \
     --n_epochs 40 --n_epochs_decay 20 \
     --display_freq 100 --print_freq 100 \
     --lambda_B 7.5 \
