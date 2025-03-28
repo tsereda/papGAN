@@ -1,18 +1,18 @@
 apiVersion: v1
 kind: Pod
 metadata:
-  name: pap-processing-pod #Change this
+  name: pap-pod #pod name
 spec:
   securityContext:
     runAsUser: 1000
     runAsGroup: 100
     fsGroup: 100
   containers:
-  - name: pap-processing #Change this
+  - name: pap-processing
     image: gitlab-registry.nrp-nautilus.io/prp/jupyter-stack/prp
     env:
     - name: REPO_PATH
-      value: /opt/repo/papGAN #Change this
+      value: /opt/repo/papGAN #repo
     command:
     - "bash"
     - "-c"
@@ -20,27 +20,28 @@ spec:
     - |
       # --- User and Environment Setup ---
       echo "Running as user: $(whoami), UID: $(id -u), GID: $(id -g)"
-
+     
       # --- Git Repository Update ---
       echo "Updating Git repository..."
       cd ${REPO_PATH}
       git pull origin main || { echo "Failed to update git repository"; exit 1; }
       echo "Git repository updated."
-
-      echo "Pod is running. Connect with: kubectl exec -it <pod-name> -- bash"
+     
+      echo "Pod is running. Connect with: kubectl exec -it pap-pod -- bash"
+      echo "Working with data from local volume at /data and S3 data at /s3data"
       echo "Sleeping indefinitely. Use Ctrl+C to terminate."
-      
+     
       sleep infinity
-
-
     volumeMounts:
     - name: git-repo
       mountPath: /opt/repo
-    - name: pap-data-volume #Change this
+    - name: pap-data-volume #pvc (optional)
       mountPath: /data
+    - name: s3-data
+      mountPath: /s3data
+      readOnly: true
     - name: dshm
       mountPath: /dev/shm
-
     resources:
       limits:
         memory: 24Gi
@@ -50,7 +51,44 @@ spec:
         memory: 20Gi
         cpu: "10"
         nvidia.com/gpu: "1"
-
+  - name: rclone-sidecar
+    image: rclone/rclone:latest
+    env:
+    - name: AWS_ACCESS_KEY_ID
+      valueFrom:
+        secretKeyRef:
+          name: s3-credentials
+          key: NAUTILUS_ACCESS_KEY_ID
+    - name: NAUTILUS_SECRET_ACCESS_KEY
+      valueFrom:
+        secretKeyRef:
+          name: s3-credentials
+          key: NAUTILUS_SECRET_ACCESS_KEY
+    - name: S3_BUCKET
+      value: "my-s3-bucket"  # Replace with your bucket name
+    command:
+    - "rclone"
+    args:
+    - "mount"
+    - "s3:$(S3_BUCKET)"
+    - "/mnt/s3"
+    - "--allow-other"
+    - "--vfs-cache-mode=full"
+    - "--vfs-cache-max-size=1G"
+    - "--log-level=INFO"
+    - "--log-file=/dev/stdout"
+    securityContext:
+      privileged: true  # Required for FUSE mount
+    volumeMounts:
+    - name: s3-data
+      mountPath: /mnt/s3
+    resources:
+      limits:
+        memory: 1Gi
+        cpu: "1"
+      requests:
+        memory: 512Mi
+        cpu: "0.5"
   initContainers:
   - name: init-git-repo
     image: alpine/git
@@ -59,8 +97,8 @@ spec:
     - --single-branch
     - -b
     - main
-    - https://github.com/tsereda/papGAN #Change this
-    - /opt/repo/papGAN #Change this
+    - https://github.com/tsereda/papGAN
+    - /opt/repo/papGAN
     volumeMounts:
     - name: git-repo
       mountPath: /opt/repo
@@ -71,16 +109,16 @@ spec:
       requests:
         memory: 256Mi
         cpu: 200m
-
   volumes:
   - name: git-repo
     emptyDir: {}
-  - name: pap-data-volume #Change this
+  - name: pap-data-volume
     persistentVolumeClaim:
-      claimName: pap-data #Change this
+      claimName: pap-data
   - name: dshm
     emptyDir:
       medium: Memory
       sizeLimit: 8Gi
-
+  - name: s3-data
+    emptyDir: {}
   restartPolicy: Never
