@@ -4,7 +4,7 @@ metadata:
   name: pap-data
 spec:
   accessModes:
-    - ReadWriteOnce  # ReadWriteMany if multiple pods need access at once
+    - ReadWriteOnce
   resources:
     requests:
-      storage: 50Gi  # Adjust as needed
+      storage: 150Gi
