@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: Pod
 metadata:
-  name: pap-train-pod2
+  name: pap-train-pod
 spec:
   securityContext:
     runAsUser: 1000
@@ -32,29 +32,22 @@ spec:
           
           # --- Clone CycleGAN repository ---
           echo "Cloning CycleGAN repository..."
-          if [ ! -d "${REPO_PATH}/pytorch-CycleGAN-and-pix2pix" ]; then
-            git clone https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix.git
-          else
-            echo "CycleGAN repository already exists"
-          fi
+          git clone https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix.git
           
           # --- Install CycleGAN requirements ---
           echo "Installing CycleGAN requirements..."
           pip install -r ${REPO_PATH}/pytorch-CycleGAN-and-pix2pix/requirements.txt
           
-          # --- Extract preprocessed data ---
+          # In training pod args section:
+          # --- Extract with fast zstd decompression ---
+          apt-get update && apt-get install -y zstd
           echo "Extracting preprocessed data..."
           mkdir -p ${REPO_PATH}/cyclegan_dataset_256_split
-          if [ -f "/data/cyclegan_processed_data.tar.gz" ]; then
-            tar -xzvf /data/cyclegan_processed_data.tar.gz -C ${REPO_PATH}
+          if [ -f "/data/cyclegan_processed_data.tar.zst" ]; then
+            tar -x -I "zstd -d -T0" -f /data/cyclegan_processed_data.tar.zst -C ${REPO_PATH}
           else
             echo "Preprocessed data file not found, skipping extraction"
           fi
-          
-          # --- Start Visdom server ---
-          echo "Starting Visdom server..."
-          python -m visdom.server > /tmp/visdom.log 2>&1 &
-          sleep 5
           
           # --- Run training with reduced batch size to avoid OOM errors ---
           echo "Starting CycleGAN training..."

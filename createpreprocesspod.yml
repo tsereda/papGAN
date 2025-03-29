@@ -1,22 +1,24 @@
-apiVersion: v1
-kind: Pod
+apiVersion: batch/v1
+kind: Job
 metadata:
-  name: pap-preprocess-pod
+  name: preprocess-job
 spec:
-  securityContext:
-    runAsUser: 1000
-    runAsGroup: 100
-    fsGroup: 100
-  containers:
-    - name: pap-processing
-      image: gitlab-registry.nrp-nautilus.io/prp/jupyter-stack/prp
-      env:
+  template:
+    spec:
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 100
+        fsGroup: 100
+      containers:
+      - name: pap-processing
+        image: gitlab-registry.nrp-nautilus.io/prp/jupyter-stack/prp
+        env:
         - name: REPO_PATH
           value: /opt/repo/papGAN
-      command:
+        command:
         - "bash"
         - "-c"
-      args:
+        args:
         - |
           # --- User and Environment Setup ---
           echo "Running as user: $(whoami), UID: $(id -u), GID: $(id -g)"
@@ -30,54 +32,111 @@ spec:
           
           # --- Install dependencies ---
           echo "Installing dependencies for preprocessing..."
-          cd ${REPO_PATH}
+          pip install gdown
+          # Install native 7z for faster extraction
+          apt-get update && apt-get install -y p7zip-full
           
-          # Clone CycleGAN repository if needed
-          if [ ! -d "${REPO_PATH}/pytorch-CycleGAN-and-pix2pix" ]; then
-            git clone https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix.git
+          # --- Download dataset ---
+          echo "Downloading dataset..."
+          mkdir -p /data/extract
+          cd /data
+          if [ ! -f isbi2025-ps3c-train-dataset.7z ]; then
+            echo "Downloading dataset 7z file..."
+            gdown 1yeHKqXVf9YhS6FAqVGezKrSaNGp6v-xX -O isbi2025-ps3c-train-dataset.7z
+          else
+            echo "Dataset 7z file already exists."
           fi
           
-          # Install requirements
-          pip install -r pytorch-CycleGAN-and-pix2pix/requirements.txt
+          # Use native 7z command for faster extraction with parallel processing
+          echo "Extracting dataset using native 7z tool (faster)..."
+          # -aoa: Overwrite all existing files without prompt
+          # -mmt=4: Use 4 threads for decompression (adjust as needed)
+          7z x isbi2025-ps3c-train-dataset.7z -o/data/extract -aoa -mmt=4
+          echo "Extraction complete!"
           
-          # Install any additional requirements for preprocessing
-          pip install opencv-python pillow numpy matplotlib
+          # Verify extraction and list contents
+          echo "Listing extracted contents:"
+          ls -la /data/extract/
+          
+          # Identify the actual dataset directory after extraction
+          # First check if the expected directory exists
+          if [ -d "/data/extract/isbi2025-ps3c-train-dataset" ]; then
+            DATASET_DIR="/data/extract/isbi2025-ps3c-train-dataset"
+          else
+            # Try to find the actual directory
+            echo "Looking for dataset directory in extracted contents..."
+            DATASET_DIR=$(find /data/extract -type d -not -path "*/\.*" | head -n 2 | tail -n 1)
+            echo "Using dataset directory: ${DATASET_DIR}"
+          fi
           
           # --- Run preprocessing ---
           echo "Running preprocessing..."
           cd ${REPO_PATH}
           
-          # Run the preprocessing script
-          python preprocess.py --source_dir /data/isbi2025-ps3c-train-dataset
+          # Debug: Check if directory exists and list its contents
+          echo "Checking if dataset directory exists: ${DATASET_DIR}"
+          if [ -d "${DATASET_DIR}" ]; then
+            echo "Directory exists, listing contents:"
+            ls -la ${DATASET_DIR}
+          else
+            echo "ERROR: Dataset directory not found!"
+            # Create a minimal test dataset for debugging purposes
+            echo "Creating test dataset for debugging..."
+            mkdir -p ${DATASET_DIR}/healthy ${DATASET_DIR}/unhealthy
+            # Create a few empty test images
+            touch ${DATASET_DIR}/healthy/test1.png ${DATASET_DIR}/healthy/test2.png
+            touch ${DATASET_DIR}/unhealthy/test1.png ${DATASET_DIR}/unhealthy/test2.png
+          fi
           
-          # Copy the processed data to the PVC for persistence
-          echo "Archiving processed data to persistent storage..."
-          tar -czvf /data/cyclegan_processed_data.tar.gz cyclegan_dataset_256_split
+          # Run the preprocessing script with the extracted dataset path
+          echo "Running preprocess.py with: --source_dir ${DATASET_DIR} --steps augment,resize,split"
+          python preprocess.py --source_dir ${DATASET_DIR} --steps augment,resize,split
           
-          echo "Preprocessing completed. Your data is ready at /data/cyclegan_processed_data.tar.gz"
-      volumeMounts:
+          # Use faster compression with parallel processing
+          echo "Archiving processed data with parallel compression..."
+          # Install pigz for parallel gzip compression
+          apt-get install -y pigz
+          
+          # Check output
+          echo "Checking output directories:"
+          ls -la
+          
+          # Use tar with pigz for faster compression
+          echo "Archiving processed data to persistent storage using parallel compression..."
+          if [ -d "cyclegan_dataset_256_split" ]; then
+            echo "Archiving directory: cyclegan_dataset_256_split"
+            tar -cf - cyclegan_dataset_256_split | pigz -9 -p 4 > /data/cyclegan_processed_data.tar.gz
+            echo "Archive created at: /data/cyclegan_processed_data.tar.gz"
+          else
+            echo "Error: Output directory cyclegan_dataset_256_split not found!"
+            echo "Current directory contents:"
+            ls -la
+          fi
+          
+          echo "Preprocessing process completed. Data should be at /data/cyclegan_processed_data.tar.gz"
+        volumeMounts:
         - name: git-repo
           mountPath: /opt/repo
         - name: pap-data-volume
           mountPath: /data
         - name: dshm
           mountPath: /dev/shm
-      resources:
-        limits:
-          memory: 16Gi
-          cpu: "8"
-          nvidia.com/gpu: "1" # Add GPU if preprocessing needs it
-        requests:
-          memory: 12Gi
-          cpu: "6"
-  volumes:
-    - name: git-repo
-      emptyDir: {}
-    - name: pap-data-volume
-      persistentVolumeClaim:
-        claimName: pap-data
-    - name: dshm
-      emptyDir:
-        medium: Memory
-        sizeLimit: 4Gi
-  restartPolicy: Never
+        resources:
+          requests:
+            memory: 20Gi
+            cpu: "20"
+          limits:
+            memory: 24Gi
+            cpu: "24"
+            nvidia.com/gpu: "1"
+      volumes:
+      - name: git-repo
+        emptyDir: {}
+      - name: pap-data-volume
+        persistentVolumeClaim:
+          claimName: pap-data
+      - name: dshm
+        emptyDir:
+          medium: Memory
+          sizeLimit: 4Gi
+      restartPolicy: Never

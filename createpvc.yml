@@ -3,6 +3,7 @@ kind: PersistentVolumeClaim
 metadata:
   name: pap-data
 spec:
+  storageClassName: rook-ceph-block-central
   accessModes:
     - ReadWriteOnce
   resources:

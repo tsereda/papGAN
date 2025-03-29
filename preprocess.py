@@ -9,6 +9,8 @@ import random
 from tqdm import tqdm
 from torchvision import transforms
 import matplotlib.pyplot as plt
+import concurrent.futures
+from functools import partial
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Preprocessing pipeline for CycleGAN')
@@ -23,7 +25,7 @@ def parse_args():
     return parser.parse_args()
 
 def validate_create_combined(args):
-    """Step 1: Validate dataset and create combined unhealthy folder"""
+    """Step 1: Validate dataset and create combined unhealthy folder using parallel processing"""
     print("\n--- Step 1: Validating dataset and creating combined unhealthy folder ---")
     
     # Define paths
@@ -75,28 +77,51 @@ def validate_create_combined(args):
     combined_path = f'{args.source_dir}/both_and_unhealthy'
     os.makedirs(combined_path, exist_ok=True)
 
-    # Copy images from 'both' and 'unhealthy' folders
+    # Helper function for copying a single file with source prefix
+    def copy_file_with_prefix(file_info, dest_dir):
+        source, file = file_info
+        dest_file = os.path.join(dest_dir, f"{source}_{file.name}")
+        shutil.copy2(file, dest_file)
+        return dest_file
+    
+    # Prepare file list for parallel copying
+    copy_tasks = []
     sources = ['bothcells', 'unhealthy']
-    copied_count = 0
-
+    
     for source in sources:
         source_path = f'{args.source_dir}/{source}'
-        print(f"\nChecking source path: {source_path}")
-        print(f"Is path in stats? {source_path in stats}")
+        print(f"\nPreparing copy tasks for: {source_path}")
         if source_path in stats:
-            print(f"Number of files found: {len(stats[source_path]['files'])}")
+            print(f"Number of files to copy: {len(stats[source_path]['files'])}")
+            # Create (source_name, file_path) pairs
             for file in stats[source_path]['files']:
-                dest_file = os.path.join(combined_path, f"{source}_{file.name}")
-                shutil.copy2(file, dest_file)
-                copied_count += 1
-
+                copy_tasks.append((source, file))
+    
+    # Parallel copy
+    print(f"\nStarting parallel file copy using process pool...")
+    print(f"Total files to copy: {len(copy_tasks)}")
+    
+    # Set number of workers based on system
+    max_workers = min(32, os.cpu_count() + 4)
+    print(f"Using {max_workers} worker processes")
+    
+    copied_count = 0
+    
+    with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+        # Use partial to fix the destination directory
+        copy_fn = partial(copy_file_with_prefix, dest_dir=combined_path)
+        
+        # Execute copy operations in parallel with progress bar
+        for _ in tqdm(executor.map(copy_fn, copy_tasks), total=len(copy_tasks)):
+            copied_count += 1
+    
     print(f"\nCreated combined folder: {combined_path}")
-    print(f"Copied {copied_count} images")
+    print(f"Copied {copied_count} images using parallel processing")
     
     return stats
 
 def augment_create_matched(args, stats=None):
-    """Step 3: Augment data and create matched dataset"""
+    """Step 3: Augment data and create matched dataset with parallel processing"""
     print("\n--- Step 3: Augmenting data and creating matched dataset ---")
     
     # Setup paths
@@ -123,69 +148,151 @@ def augment_create_matched(args, stats=None):
     healthy_files = list(Path(healthy_dir).glob('*.jpg')) + list(Path(healthy_dir).glob('*.png'))
     unhealthy_files = list(Path(combined_dir).glob('*.jpg')) + list(Path(combined_dir).glob('*.png'))
 
-    # Get target size from unhealthy images
-    print('Analyzing unhealthy images...')
-    unhealthy_sizes = np.array([Image.open(f).size for f in tqdm(unhealthy_files)])
+    # Parallel function to get image size
+    def get_image_size(file_path):
+        try:
+            with Image.open(file_path) as img:
+                return np.array(img.size)
+        except Exception as e:
+            print(f"Error processing {file_path}: {e}")
+            return None
+    
+    # Get target size from unhealthy images using parallel processing
+    print('Analyzing unhealthy images in parallel...')
+    with concurrent.futures.ProcessPoolExecutor() as executor:
+        size_results = list(tqdm(
+            executor.map(get_image_size, unhealthy_files),
+            total=len(unhealthy_files)
+        ))
+    
+    # Filter out None values from errors
+    unhealthy_sizes = np.array([size for size in size_results if size is not None])
     target_size = unhealthy_sizes.mean(axis=0)
+    print(f"Target size computed: {target_size[0]:.1f} x {target_size[1]:.1f}")
 
-    # Copy and augment unhealthy files
-    print('\nCopying and augmenting unhealthy files...')
-    file_counter = 0
-    for src in tqdm(unhealthy_files):
-        # Copy original
-        img = Image.open(src)
-        shutil.copy(src, trainB / f'unhealthy_{file_counter:04d}{src.suffix}')
-        file_counter += 1
+    # Function to copy and augment a single unhealthy image
+    def process_unhealthy_image(args):
+        src, counter, transform_list, dest_dir = args
+        try:
+            img = Image.open(src)
+            # Copy original
+            dest_file = dest_dir / f'unhealthy_{counter:04d}{src.suffix}'
+            shutil.copy(src, dest_file)
+            
+            # Apply one random transform
+            transform = random.choice(transform_list)
+            aug_img = transform(img)
+            aug_file = dest_dir / f'unhealthy_aug_{counter+1:04d}{src.suffix}'
+            aug_img.save(aug_file)
+            
+            return [dest_file, aug_file]
+        except Exception as e:
+            print(f"Error processing {src}: {e}")
+            return []
 
-        # Apply one random transform
-        transform = random.choice(transform_list)
-        aug_img = transform(img)
-        aug_img.save(trainB / f'unhealthy_aug_{file_counter:04d}{src.suffix}')
-        file_counter += 1
-
-    # Get actual count of trainB after augmentation
-    trainB_count = len(list(trainB.glob('*')))
+    # Prepare unhealthy processing tasks
+    print('\nPreparing unhealthy image processing tasks...')
+    unhealthy_tasks = [
+        (src, i*2, transform_list, trainB) 
+        for i, src in enumerate(unhealthy_files)
+    ]
+    
+    # Process unhealthy images in parallel
+    print('Processing and augmenting unhealthy images in parallel...')
+    with concurrent.futures.ProcessPoolExecutor() as executor:
+        results = list(tqdm(
+            executor.map(process_unhealthy_image, unhealthy_tasks),
+            total=len(unhealthy_tasks)
+        ))
+    
+    # Flatten the results list and count files
+    processed_files = [f for sublist in results for f in sublist if f]
+    trainB_count = len(processed_files)
     print(f'\nTotal unhealthy images after augmentation: {trainB_count}')
 
-    # Select matching healthy images
-    print('\nSelecting size-matched healthy images...')
-    healthy_matches = []
-    for f in tqdm(healthy_files):
-        size = np.array(Image.open(f).size)
-        healthy_matches.append((np.linalg.norm(size - target_size), f))
-
+    # Function to compute size match for a healthy image
+    def compute_size_match(args):
+        file_path, target = args
+        try:
+            with Image.open(file_path) as img:
+                size = np.array(img.size)
+                return (np.linalg.norm(size - target), file_path)
+        except Exception as e:
+            print(f"Error processing {file_path}: {e}")
+            return (float('inf'), file_path)  # Return infinity for error cases
+    
+    # Prepare healthy image matching tasks
+    healthy_tasks = [(f, target_size) for f in healthy_files]
+    
+    # Process healthy images in parallel to find size matches
+    print('\nSelecting size-matched healthy images in parallel...')
+    with concurrent.futures.ProcessPoolExecutor() as executor:
+        healthy_matches = list(tqdm(
+            executor.map(compute_size_match, healthy_tasks),
+            total=len(healthy_tasks)
+        ))
+    
     # Sort by size similarity and split into train and test
+    print("Sorting results by size similarity...")
     sorted_healthy = sorted(healthy_matches, key=lambda x: x[0])
     selected_healthy = [f for _, f in sorted_healthy[:trainB_count]]
-    test_healthy_files = [f for _, f in sorted_healthy[trainB_count:]]
-
-    # Copy train healthy files
-    print('\nCopying training healthy files...')
-    for i, src in enumerate(tqdm(selected_healthy)):
-        shutil.copy(src, trainA / f'healthy_{i:04d}{src.suffix}')
-
-    # Copy test healthy files
-    print('\nCopying test healthy files...')
-    for i, src in enumerate(tqdm(test_healthy_files)):
-        shutil.copy(src, test_healthy / f'healthy_{i:04d}{src.suffix}')
-
+    test_healthy_files = [f for _, f in sorted_healthy[trainB_count:trainB_count+1000]]  # Limit test set size
+    
+    # Function to copy a file with indexed name
+    def copy_with_index(args):
+        src, index, prefix, dest_dir = args
+        try:
+            dest_file = dest_dir / f'{prefix}_{index:04d}{src.suffix}'
+            shutil.copy(src, dest_file)
+            return dest_file
+        except Exception as e:
+            print(f"Error copying {src}: {e}")
+            return None
+    
+    # Prepare file copy tasks
+    train_tasks = [(src, i, 'healthy', trainA) for i, src in enumerate(selected_healthy)]
+    test_tasks = [(src, i, 'healthy', test_healthy) for i, src in enumerate(test_healthy_files)]
+    
+    # Copy train healthy files in parallel
+    print('\nCopying training healthy files in parallel...')
+    with concurrent.futures.ProcessPoolExecutor() as executor:
+        train_results = list(tqdm(
+            executor.map(copy_with_index, train_tasks),
+            total=len(train_tasks)
+        ))
+    
+    # Copy test healthy files in parallel
+    print('\nCopying test healthy files in parallel...')
+    with concurrent.futures.ProcessPoolExecutor() as executor:
+        test_results = list(tqdm(
+            executor.map(copy_with_index, test_tasks),
+            total=len(test_tasks)
+        ))
+    
+    # Count successful copies
+    trainA_count = len([f for f in train_results if f])
+    test_count = len([f for f in test_results if f])
+    
     print(f'\nDataset created at {output_dir}:')
-    print(f'trainA (healthy): {len(list(trainA.glob("*")))} images')
-    print(f'trainB (unhealthy+bothcells): {len(list(trainB.glob("*")))} images')
-    print(f'test_healthy: {len(list(test_healthy.glob("*")))} images')
+    print(f'trainA (healthy): {trainA_count} images')
+    print(f'trainB (unhealthy+bothcells): {trainB_count} images')
+    print(f'test_healthy: {test_count} images')
 
     # Verify sample sizes
     print("\nSample image sizes:")
-    for folder in [trainA, trainB, test_healthy]:
+    for folder, name in [(trainA, 'trainA'), (trainB, 'trainB'), (test_healthy, 'test_healthy')]:
         files = list(folder.glob('*'))
-        samples = random.sample(files, min(3, len(files)))
-        print(f"\n{folder.name}:")
-        for f in samples:
-            with Image.open(f) as img:
-                print(f"{f.name}: {img.size}")
+        if files:
+            samples = random.sample(files, min(3, len(files)))
+            print(f"\n{name}:")
+            for f in samples:
+                with Image.open(f) as img:
+                    print(f"{f.name}: {img.size}")
+        else:
+            print(f"\n{name}: No files found")
 
 def resize_dataset(args):
-    """Step 4: Resize images to target size"""
+    """Step 4: Resize images to target size with parallel processing"""
     print(f"\n--- Step 4: Resizing images to {args.target_size}x{args.target_size} ---")
     
     # Define paths
@@ -195,29 +302,54 @@ def resize_dataset(args):
 
     # Create target directories
     Path(target_dir).mkdir(parents=True, exist_ok=True)
-
-    # Process all three folders
-    for subdir in ['trainA', 'trainB', 'test_healthy']:
-        # Create target subdirectory
-        Path(target_dir, subdir).mkdir(exist_ok=True)
-
-        # Get source files
-        source_path = Path(source_dir, subdir)
-        files = list(source_path.glob('*.png')) + list(source_path.glob('*.jpg'))
-
-        print(f"\nProcessing {subdir}...")
-        for file in tqdm(files):
-            # Load and resize image
+    
+    # Function to resize a single file
+    def resize_file(args):
+        file, target_dir, size = args
+        try:
+            # Load image
             with Image.open(file) as img:
                 # Convert to RGB if needed
                 if img.mode != 'RGB':
                     img = img.convert('RGB')
                 # Use LANCZOS resampling for high quality
                 resized = img.resize(size, Image.Resampling.LANCZOS)
-
+                
+                # Create subdirectory if needed
+                subdir = file.parent.name
+                output_dir = Path(target_dir) / subdir
+                output_dir.mkdir(exist_ok=True)
+                
                 # Save to new location
-                new_path = Path(target_dir, subdir, file.name)
+                new_path = output_dir / file.name
                 resized.save(new_path, quality=95)
+                return new_path
+        except Exception as e:
+            print(f"Error processing {file}: {e}")
+            return None
+    
+    # Process all three folders
+    all_files = []
+    for subdir in ['trainA', 'trainB', 'test_healthy']:
+        # Create target subdirectory
+        Path(target_dir, subdir).mkdir(exist_ok=True)
+        
+        # Get source files
+        source_path = Path(source_dir, subdir)
+        files = list(source_path.glob('*.png')) + list(source_path.glob('*.jpg'))
+        all_files.extend([(f, target_dir, size) for f in files])
+    
+    # Process files in parallel
+    print(f"\nResizing {len(all_files)} images in parallel...")
+    with concurrent.futures.ProcessPoolExecutor() as executor:
+        results = list(tqdm(
+            executor.map(resize_file, all_files),
+            total=len(all_files)
+        ))
+    
+    # Count successful resizes
+    successful = len([r for r in results if r])
+    print(f"\nSuccessfully resized {successful} of {len(all_files)} images")
 
     # Verify the resized dataset
     print("\nVerifying resized dataset...")
@@ -227,14 +359,14 @@ def resize_dataset(args):
 
         print(f"\nChecking {subdir}...")
         sizes = set()
-        for f in files:
+        for f in files[:10]:  # Just check a few files for verification
             with Image.open(f) as img:
                 sizes.add(img.size)
         print(f"Unique sizes found: {sizes}")
         print(f"Total images: {len(files)}")
 
 def split_dataset(args):
-    """Step 5: Split dataset into train/val"""
+    """Step 5: Split dataset into train/val with parallel processing"""
     print("\n--- Step 5: Splitting dataset into train/val ---")
     
     # Configuration
@@ -250,9 +382,21 @@ def split_dataset(args):
     # Also create test_healthy directory
     (target_dir / 'test_healthy').mkdir(parents=True, exist_ok=True)
 
-    # Split and move files
+    # Function to copy a file to its destination
+    def copy_file(args):
+        src, dest = args
+        try:
+            shutil.copy(src, dest)
+            return dest
+        except Exception as e:
+            print(f"Error copying {src} to {dest}: {e}")
+            return None
+    
+    # Process both domains
+    all_copy_tasks = []
+    
     for domain in ['A', 'B']:
-        files = list(Path(data_dir, f'train{domain}').glob('*.png'))
+        files = list(Path(data_dir, f'train{domain}').glob('*.png')) + list(Path(data_dir, f'train{domain}').glob('*.jpg'))
         total_files = len(files)
 
         # Calculate split size
@@ -262,22 +406,33 @@ def split_dataset(args):
         test_files = random.sample(files, test_size)
         train_files = [f for f in files if f not in test_files]
 
-        # Move files
-        for split, file_list in [
-            ('train', train_files),
-            ('val', test_files)
-        ]:
-            for f in file_list:
-                shutil.copy(f, target_dir / f'{split}{domain}' / f.name)
-
-    # Copy test_healthy directory
-    test_healthy_files = list(Path(data_dir, 'test_healthy').glob('*.png'))
-    for f in test_healthy_files:
-        shutil.copy(f, target_dir / 'test_healthy' / f.name)
+        # Create copy tasks
+        for f in train_files:
+            all_copy_tasks.append((f, target_dir / f'train{domain}' / f.name))
+        for f in test_files:
+            all_copy_tasks.append((f, target_dir / f'val{domain}' / f.name))
     
+    # Add test_healthy copy tasks
+    test_healthy_files = list(Path(data_dir, 'test_healthy').glob('*.png')) + list(Path(data_dir, 'test_healthy').glob('*.jpg'))
+    for f in test_healthy_files:
+        all_copy_tasks.append((f, target_dir / 'test_healthy' / f.name))
+    
+    # Copy files in parallel
+    print(f"\nCopying {len(all_copy_tasks)} files in parallel...")
+    with concurrent.futures.ProcessPoolExecutor() as executor:
+        results = list(tqdm(
+            executor.map(copy_file, all_copy_tasks),
+            total=len(all_copy_tasks)
+        ))
+    
+    # Count successful copies
+    successful = len([r for r in results if r])
+    print(f"\nSuccessfully copied {successful} of {len(all_copy_tasks)} files")
+    
+    # Print dataset statistics
     print(f"\nDataset split created at {target_dir}")
     for dir_path in target_dir.glob('*'):
-        files = list(dir_path.glob('*.png'))
+        files = list(dir_path.glob('*.png')) + list(dir_path.glob('*.jpg'))
         print(f"{dir_path.name}: {len(files)} images")
 
 def main():
