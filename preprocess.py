@@ -12,6 +12,98 @@ import matplotlib.pyplot as plt
 import concurrent.futures
 from functools import partial
 
+# Module-level functions for parallel processing
+
+# Function for validate_create_combined
+def copy_file_with_prefix(file_info, dest_dir):
+    source, file = file_info
+    dest_file = os.path.join(dest_dir, f"{source}_{file.name}")
+    shutil.copy2(file, dest_file)
+    return dest_file
+
+# Functions for augment_create_matched
+def get_image_size(file_path):
+    try:
+        with Image.open(file_path) as img:
+            return np.array(img.size)
+    except Exception as e:
+        print(f"Error processing {file_path}: {e}")
+        return None
+
+def process_unhealthy_image(args):
+    src, counter, transform_list, dest_dir = args
+    try:
+        img = Image.open(src)
+        # Copy original
+        dest_file = dest_dir / f'unhealthy_{counter:04d}{src.suffix}'
+        shutil.copy(src, dest_file)
+        
+        # Apply one random transform
+        transform = random.choice(transform_list)
+        aug_img = transform(img)
+        aug_file = dest_dir / f'unhealthy_aug_{counter+1:04d}{src.suffix}'
+        aug_img.save(aug_file)
+        
+        return [dest_file, aug_file]
+    except Exception as e:
+        print(f"Error processing {src}: {e}")
+        return []
+
+def compute_size_match(args):
+    file_path, target = args
+    try:
+        with Image.open(file_path) as img:
+            size = np.array(img.size)
+            return (np.linalg.norm(size - target), file_path)
+    except Exception as e:
+        print(f"Error processing {file_path}: {e}")
+        return (float('inf'), file_path)  # Return infinity for error cases
+
+def copy_with_index(args):
+    src, index, prefix, dest_dir = args
+    try:
+        dest_file = dest_dir / f'{prefix}_{index:04d}{src.suffix}'
+        shutil.copy(src, dest_file)
+        return dest_file
+    except Exception as e:
+        print(f"Error copying {src}: {e}")
+        return None
+
+# Function for resize_dataset
+def resize_file(args):
+    file, target_dir, size = args
+    try:
+        # Load image
+        with Image.open(file) as img:
+            # Convert to RGB if needed
+            if img.mode != 'RGB':
+                img = img.convert('RGB')
+            # Use LANCZOS resampling for high quality
+            resized = img.resize(size, Image.Resampling.LANCZOS)
+            
+            # Create subdirectory if needed
+            subdir = file.parent.name
+            output_dir = Path(target_dir) / subdir
+            output_dir.mkdir(exist_ok=True)
+            
+            # Save to new location
+            new_path = output_dir / file.name
+            resized.save(new_path, quality=95)
+            return new_path
+    except Exception as e:
+        print(f"Error processing {file}: {e}")
+        return None
+
+# Function for split_dataset
+def copy_file(args):
+    src, dest = args
+    try:
+        shutil.copy(src, dest)
+        return dest
+    except Exception as e:
+        print(f"Error copying {src} to {dest}: {e}")
+        return None
+
 def parse_args():
     parser = argparse.ArgumentParser(description='Preprocessing pipeline for CycleGAN')
     parser.add_argument('--steps', type=str, default='all', 
@@ -76,13 +168,6 @@ def validate_create_combined(args):
     # Create combined folder for 'both' and 'unhealthy'
     combined_path = f'{args.source_dir}/both_and_unhealthy'
     os.makedirs(combined_path, exist_ok=True)
-
-    # Helper function for copying a single file with source prefix
-    def copy_file_with_prefix(file_info, dest_dir):
-        source, file = file_info
-        dest_file = os.path.join(dest_dir, f"{source}_{file.name}")
-        shutil.copy2(file, dest_file)
-        return dest_file
     
     # Prepare file list for parallel copying
     copy_tasks = []
@@ -148,15 +233,6 @@ def augment_create_matched(args, stats=None):
     healthy_files = list(Path(healthy_dir).glob('*.jpg')) + list(Path(healthy_dir).glob('*.png'))
     unhealthy_files = list(Path(combined_dir).glob('*.jpg')) + list(Path(combined_dir).glob('*.png'))
 
-    # Parallel function to get image size
-    def get_image_size(file_path):
-        try:
-            with Image.open(file_path) as img:
-                return np.array(img.size)
-        except Exception as e:
-            print(f"Error processing {file_path}: {e}")
-            return None
-    
     # Get target size from unhealthy images using parallel processing
     print('Analyzing unhealthy images in parallel...')
     with concurrent.futures.ProcessPoolExecutor() as executor:
@@ -169,26 +245,6 @@ def augment_create_matched(args, stats=None):
     unhealthy_sizes = np.array([size for size in size_results if size is not None])
     target_size = unhealthy_sizes.mean(axis=0)
     print(f"Target size computed: {target_size[0]:.1f} x {target_size[1]:.1f}")
-
-    # Function to copy and augment a single unhealthy image
-    def process_unhealthy_image(args):
-        src, counter, transform_list, dest_dir = args
-        try:
-            img = Image.open(src)
-            # Copy original
-            dest_file = dest_dir / f'unhealthy_{counter:04d}{src.suffix}'
-            shutil.copy(src, dest_file)
-            
-            # Apply one random transform
-            transform = random.choice(transform_list)
-            aug_img = transform(img)
-            aug_file = dest_dir / f'unhealthy_aug_{counter+1:04d}{src.suffix}'
-            aug_img.save(aug_file)
-            
-            return [dest_file, aug_file]
-        except Exception as e:
-            print(f"Error processing {src}: {e}")
-            return []
 
     # Prepare unhealthy processing tasks
     print('\nPreparing unhealthy image processing tasks...')
@@ -210,17 +266,6 @@ def augment_create_matched(args, stats=None):
     trainB_count = len(processed_files)
     print(f'\nTotal unhealthy images after augmentation: {trainB_count}')
 
-    # Function to compute size match for a healthy image
-    def compute_size_match(args):
-        file_path, target = args
-        try:
-            with Image.open(file_path) as img:
-                size = np.array(img.size)
-                return (np.linalg.norm(size - target), file_path)
-        except Exception as e:
-            print(f"Error processing {file_path}: {e}")
-            return (float('inf'), file_path)  # Return infinity for error cases
-    
     # Prepare healthy image matching tasks
     healthy_tasks = [(f, target_size) for f in healthy_files]
     
@@ -237,17 +282,6 @@ def augment_create_matched(args, stats=None):
     sorted_healthy = sorted(healthy_matches, key=lambda x: x[0])
     selected_healthy = [f for _, f in sorted_healthy[:trainB_count]]
     test_healthy_files = [f for _, f in sorted_healthy[trainB_count:trainB_count+1000]]  # Limit test set size
-    
-    # Function to copy a file with indexed name
-    def copy_with_index(args):
-        src, index, prefix, dest_dir = args
-        try:
-            dest_file = dest_dir / f'{prefix}_{index:04d}{src.suffix}'
-            shutil.copy(src, dest_file)
-            return dest_file
-        except Exception as e:
-            print(f"Error copying {src}: {e}")
-            return None
     
     # Prepare file copy tasks
     train_tasks = [(src, i, 'healthy', trainA) for i, src in enumerate(selected_healthy)]
@@ -303,31 +337,6 @@ def resize_dataset(args):
     # Create target directories
     Path(target_dir).mkdir(parents=True, exist_ok=True)
     
-    # Function to resize a single file
-    def resize_file(args):
-        file, target_dir, size = args
-        try:
-            # Load image
-            with Image.open(file) as img:
-                # Convert to RGB if needed
-                if img.mode != 'RGB':
-                    img = img.convert('RGB')
-                # Use LANCZOS resampling for high quality
-                resized = img.resize(size, Image.Resampling.LANCZOS)
-                
-                # Create subdirectory if needed
-                subdir = file.parent.name
-                output_dir = Path(target_dir) / subdir
-                output_dir.mkdir(exist_ok=True)
-                
-                # Save to new location
-                new_path = output_dir / file.name
-                resized.save(new_path, quality=95)
-                return new_path
-        except Exception as e:
-            print(f"Error processing {file}: {e}")
-            return None
-    
     # Process all three folders
     all_files = []
     for subdir in ['trainA', 'trainB', 'test_healthy']:
@@ -381,16 +390,6 @@ def split_dataset(args):
 
     # Also create test_healthy directory
     (target_dir / 'test_healthy').mkdir(parents=True, exist_ok=True)
-
-    # Function to copy a file to its destination
-    def copy_file(args):
-        src, dest = args
-        try:
-            shutil.copy(src, dest)
-            return dest
-        except Exception as e:
-            print(f"Error copying {src} to {dest}: {e}")
-            return None
     
     # Process both domains
     all_copy_tasks = []
