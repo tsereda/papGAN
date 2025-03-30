@@ -53,7 +53,7 @@ spec:
             --name healthy2unhealthy_cyclegan \
             --model cycle_gan \
             --batch_size 6 \
-            --gpu_ids 0,1,2,3,4,5 \
+            --gpu_ids 0,1,2,3 \
             --n_epochs 100 \
             --n_epochs_decay 35 \
             --display_freq 100 \
@@ -72,11 +72,11 @@ spec:
           limits:
             memory: 30Gi
             cpu: "24"
-            nvidia.com/gpu: "6"
+            nvidia.com/gpu: "4"
           requests:
             memory: 25Gi
             cpu: "20"
-            nvidia.com/gpu: "6"
+            nvidia.com/gpu: "4"
       initContainers:
       - name: init-git-repo
         image: alpine/git
