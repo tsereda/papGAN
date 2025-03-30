@@ -63,19 +63,12 @@ spec:
       python preprocess.py --source_dir /opt/repo/papGAN/isbi2025-ps3c-train-dataset
       
       echo "Archiving processed data with parallel compression..."
-      sudo apt-get install -y pigz
+      sudo apt-get install -y zstd
+      tar -cf - cyclegan_dataset_256_split | zstd -T12 -7 > cyclegan_processed_data.tar.zst
+      cp cyclegan_processed_data.tar.zst /data/cyclegan_processed_data.tar.zst
       
-      # Check output
-      echo "Checking output directories:"
-      ls -la
-      
-      tar -cf - cyclegan_dataset_256_split | pigz -9 -p 4 > cyclegan_processed_data.tar.gz
-      
-      echo "Preprocessing process completed. Data should be at cyclegan_processed_data.tar.gz"
-      
-      # Add a sleep at the end to keep the pod running
-      echo "Processing completed, sleeping to keep pod alive..."
-      sleep infinity
+      echo "Preprocessing process completed. Data should be at cyclegan_processed_data.tar.zst"
+
     volumeMounts:
     - name: git-repo
       mountPath: /opt/repo
