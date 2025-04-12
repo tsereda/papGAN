@@ -1,82 +1,96 @@
 #!/bin/bash
-# Script 1: Setup Kubectl Aliases and Autocompletion
-# Adds common kubectl aliases and enables shell autocompletion.
+# Script: Setup Kubectl Aliases and Autocompletion
+# Appends a block of aliases and completion setup if a header marker isn't found.
 
-# --- Detect Shell and Set Config File ---
+# --- Configuration ---
+K8S_HEADER="# --- Kubernetes Enhancements (added by script) ---"
+
+# --- Detect Shell ---
 CURRENT_SHELL=$(basename "$SHELL")
 CONFIG_FILE=""
 SHELL_TYPE=""
 
-echo "INFO (Script 1): Detecting your shell..."
+echo "INFO: Detecting your shell..."
 
-if [ "$CURRENT_SHELL" = "bash" ]; then
-  CONFIG_FILE="$HOME/.bashrc"
-  SHELL_TYPE="bash"
-  echo "INFO (Script 1): Detected Bash. Configuration file: $CONFIG_FILE"
-elif [ "$CURRENT_SHELL" = "zsh" ]; then
-  CONFIG_FILE="$HOME/.zshrc"
-  SHELL_TYPE="zsh"
-  echo "INFO (Script 1): Detected Zsh. Configuration file: $CONFIG_FILE"
+# Determine shell and config file
+case "$CURRENT_SHELL" in
+  bash)
+    CONFIG_FILE="$HOME/.bashrc"
+    SHELL_TYPE="bash"
+    echo "INFO: Detected Bash. Configuration file: $CONFIG_FILE"
+    ;;
+  zsh)
+    CONFIG_FILE="$HOME/.zshrc"
+    SHELL_TYPE="zsh"
+    echo "INFO: Detected Zsh. Configuration file: $CONFIG_FILE"
+    ;;
+  *)
+    echo "ERROR: Unsupported shell '$CURRENT_SHELL'. Only bash and zsh are supported." >&2
+    exit 1
+    ;;
+esac
+
+# Check if config file exists, create if not
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "WARNING: Configuration file '$CONFIG_FILE' not found. Creating it."
+    touch "$CONFIG_FILE" || { echo "ERROR: Could not create $CONFIG_FILE" >&2; exit 1; }
+fi
+
+# --- Check if Enhancements Already Added ---
+# Simple check using the header text as a marker
+echo "INFO: Checking if Kubernetes enhancements seem already added..."
+if grep -qF "$K8S_HEADER" "$CONFIG_FILE" 2>/dev/null; then
+  echo "INFO: Marker '$K8S_HEADER' found in $CONFIG_FILE."
+  echo "INFO: Assuming setup is already present. Skipping additions."
+  changes_made=0
 else
-  echo "ERROR (Script 1): Unsupported shell '$CURRENT_SHELL'. Only bash and zsh are supported."
-  exit 1
-fi
+  # --- Add Enhancements Block ---
+  echo "INFO: Marker not found. Adding Kubernetes enhancements block to $CONFIG_FILE..."
 
-# --- Add Header to Config File (if not already present) ---
-HEADER_TEXT="# --- Kubernetes Enhancements (added by script) ---"
-if ! grep -qF "$HEADER_TEXT" "$CONFIG_FILE" 2>/dev/null; then
-  echo "" >> "$CONFIG_FILE" # Add a newline for separation
-  echo "$HEADER_TEXT" >> "$CONFIG_FILE"
-fi
-
-# --- Add Aliases ---
-echo "INFO (Script 1): Adding kubectl aliases..."
-# Use a marker to avoid adding aliases multiple times if script is rerun
-ALIAS_MARKER="# START: Kubectl Aliases"
-if ! grep -qF "$ALIAS_MARKER" "$CONFIG_FILE" 2>/dev/null; then
-  echo "$ALIAS_MARKER" >> "$CONFIG_FILE"
+  # Use a Heredoc (cat << EOF) to append the whole block.
+  # $SHELL_TYPE will be correctly substituted in the completion line.
   cat << EOF >> "$CONFIG_FILE"
 
+$K8S_HEADER
 alias k='kubectl'
-
-alias kpvc='kubectl get pvc'
 alias kgp='kubectl get pods'
+alias kgd='kubectl get deployment'
+alias kgs='kubectl get service'
+alias kpvc='kubectl get pvc'
 alias kgj='kubectl get jobs'
-
-
+alias ka='kubectl apply -f'
 alias kl='kubectl logs'
 alias kf='kubectl logs -f' # Follow logs
 alias kd='kubectl describe'
 alias ke='kubectl exec -it'
 
-EOF
-else
-    echo "INFO (Script 1): Kubectl aliases seem to be already added (marker found)."
+# Autocompletion Setup (only sources if kubectl command exists)
+if command -v kubectl &> /dev/null; then
+  source <(kubectl completion $SHELL_TYPE)
 fi
+# --- End Kubernetes Enhancements ---
 
-
-# --- Add Kubectl Autocompletion ---
-COMPLETION_LINE="source <(kubectl completion $SHELL_TYPE)"
-# Check if completion is already sourced to avoid duplicates
-if ! grep -qF "$COMPLETION_LINE" "$CONFIG_FILE" 2>/dev/null; then
-  echo "INFO (Script 1): Adding kubectl autocompletion..."
-  echo "$COMPLETION_LINE" >> "$CONFIG_FILE"
-else
-  echo "INFO (Script 1): Kubectl autocompletion already set up."
+EOF
+  echo "INFO: Block added successfully."
+  changes_made=1 # Flag that we made changes
 fi
 
 # --- Final Instructions ---
 echo ""
 echo "---------------------------------------------------------------------"
-echo "✅ Script 1 (Aliases/Completion) finished!"
-echo "Changes appended to: $CONFIG_FILE"
-echo ""
-echo "IMPORTANT: To apply these changes in your *current* shell session,"
-echo "please run the following command:"
-echo ""
-echo "    source $CONFIG_FILE"
-echo ""
-echo "New shell sessions will automatically pick up the changes."
+if [ "$changes_made" -eq 1 ]; then
+    echo "✅ Script finished! Enhancements added to: $CONFIG_FILE"
+    echo ""
+    echo "IMPORTANT: To apply these changes in your *current* shell session,"
+    echo "please run the following command:"
+    echo ""
+    echo "    source \"$CONFIG_FILE\""
+    echo ""
+    echo "New shell sessions will automatically pick up the changes."
+else
+    echo "✅ Script finished! No changes made as the marker was found in: $CONFIG_FILE"
+fi
 echo "---------------------------------------------------------------------"
 echo ""
-# --- End Script 1 ---
+
+# --- End Script ---
