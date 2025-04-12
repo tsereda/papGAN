@@ -46,10 +46,10 @@ spec:
       
       echo "Archiving processed data with parallel compression..."
       sudo apt-get install -y zstd
-      tar -cf - cyclegan_dataset_256_split | zstd -T12 -7 > cyclegan_processed_data.tar.zst
-      cp cyclegan_processed_data.tar.zst /data/cyclegan_processed_data.tar.zst
+      tar -cf - cyclegan_dataset_256_split | zstd -T12 -7 > /data/cyclegan_processed_data.tar.zst
       
-      echo "Preprocessing process completed. Data should be at cyclegan_processed_data.tar.zst"
+      echo "Preprocessing process completed. Data should be at /data/cyclegan_processed_data.tar.zst"
+      ls -hf /data/
       sleep infinity
 
     volumeMounts:
