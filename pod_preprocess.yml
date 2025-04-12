@@ -33,7 +33,7 @@ spec:
       # --- Download dataset ---
       echo "Extracting..."
       
-      7z x /data/isbi2025-ps3c-train-dataset.7z -o/opt/repo/papGAN/isbi2025-ps3c-train-dataset
+      7z x /data/isbi2025-ps3c-train-dataset.7z -o/opt/repo/papGAN/
       
       # --- Run preprocessing ---
       echo "Running preprocessing..."
