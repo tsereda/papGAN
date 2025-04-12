@@ -3,7 +3,7 @@ kind: Job
 metadata:
   name: pap-train-job
 spec:
-  backoffLimit: 2
+  backoffLimit: 0
   template:
     spec:
       securityContext:
@@ -40,21 +40,24 @@ spec:
           apt-get update && apt-get install -y zstd
           echo "Extracting preprocessed data..."
           mkdir -p ${REPO_PATH}/cyclegan_dataset_256_split
+          echo "/data/"
+          ls -lh /data/
           if [ -f "/data/cyclegan_processed_data.tar.zst" ]; then
+            echo "Preprocessed data file found, extracting..."
             tar -x -I "zstd -d -T0" -f /data/cyclegan_processed_data.tar.zst -C ${REPO_PATH}
           else
             echo "Preprocessed data file not found, skipping extraction"
           fi
-          # --- Run training with reduced batch size to avoid OOM errors ---
+          # --- Run training ---
           echo "Starting CycleGAN training..."
           cd ${REPO_PATH}
           python3 pytorch-CycleGAN-and-pix2pix/train.py \
             --dataroot cyclegan_dataset_256_split/ \
             --name healthy2unhealthy_cyclegan \
             --model cycle_gan \
-            --batch_size 32 \
+            --batch_size 2 \
             --num_threads 8 \
-            --gpu_ids 0,1,2,3,4,5,6,7 \
+            --gpu_ids 0,1 \
             --n_epochs 100 \
             --n_epochs_decay 35 \
             --display_freq 100 \
@@ -65,7 +68,7 @@ spec:
 
           echo "Copying generator weights to PVC"
           cp /opt/repo/papGAN/checkpoints/healthy2unhealthy_cyclegan/latest_net_G_A.pth /data/latest_net_G_A.pth
-          cp /opt/repo/papGAN/checkpoints/healthy2unhealthy_cyclegan/latest_net_G_A.pth /data/latest_net_G_A.pth
+          cp /opt/repo/papGAN/checkpoints/healthy2unhealthy_cyclegan/latest_net_G_B.pth /data/latest_net_G_B.pth
         volumeMounts:
         - name: git-repo
           mountPath: /opt/repo
@@ -77,11 +80,11 @@ spec:
           limits:
             memory: 30Gi
             cpu: "24"
-            nvidia.com/gpu: "8"
+            nvidia.com/a100: "2"
           requests:
             memory: 25Gi
             cpu: "20"
-            nvidia.com/gpu: "8"
+            nvidia.com/a100: "2"
       initContainers:
       - name: init-git-repo
         image: alpine/git
@@ -101,7 +104,7 @@ spec:
             cpu: 600m
           requests:
             memory: 500Mi
-            cpu: 500m            # The specific label for L40 GPUs
+            cpu: 500m  
       volumes:
       - name: git-repo
         emptyDir: {}

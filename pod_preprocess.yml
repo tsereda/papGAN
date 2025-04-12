@@ -31,27 +31,9 @@ spec:
       sudo apt-get update && sudo apt-get install -y p7zip-full
       
       # --- Download dataset ---
-      if [ ! -f /data/isbi2025-ps3c-train-dataset.7z ]; then
-        pip install gdown
-        echo "Downloading dataset 7z file..."
-        gdown 1yeHKqXVf9YhS6FAqVGezKrSaNGp6v-xX -O /data/isbi2025-ps3c-train-dataset.7z
-      else
-        echo "Dataset 7z file already exists."
-      fi
+      echo "Extracting..."
       
-      # Use native 7z command for faster extraction with parallel processing
-      echo "Copying dataset 7z to /dev/shm/..."
-      # -aoa: Overwrite all existing files without prompt# Copy to local storage
-      # First copy the 7z file to faster storage (using memory-backed tmpfs)
-      cp /data/isbi2025-ps3c-train-dataset.7z /dev/shm/
-
-      # Then extract from the faster location
-      echo "Extracting dataset..."
-      7z x /dev/shm/isbi2025-ps3c-train-dataset.7z -o/opt/repo/papGAN/isbi2025-ps3c-train-dataset -aoa -mmt=on
-
-      # Clean up the temporary copy when done
-      rm /dev/shm/isbi2025-ps3c-train-dataset.7z
-      echo "Extraction complete!"
+      7z x /data/isbi2025-ps3c-train-dataset.7z -o/opt/repo/papGAN/isbi2025-ps3c-train-dataset
       
       # --- Run preprocessing ---
       echo "Running preprocessing..."
@@ -68,6 +50,7 @@ spec:
       cp cyclegan_processed_data.tar.zst /data/cyclegan_processed_data.tar.zst
       
       echo "Preprocessing process completed. Data should be at cyclegan_processed_data.tar.zst"
+      sleep infinity
 
     volumeMounts:
     - name: git-repo
