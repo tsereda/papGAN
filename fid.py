@@ -75,9 +75,14 @@ def main():
     args = parser.parse_args()
     
     # Check if CUDA is available if requested
+    # Check if CUDA is available if requested
     if args.device == "cuda":
-        print("CUDA requested but not available. Falling back to CPU.")
-        args.device = "cpu"
+        import torch
+        if not torch.cuda.is_available():
+            print("CUDA requested but not available. Falling back to CPU.")
+            args.device = "cpu"
+        else:
+            print(f"CUDA is available. Using GPU: {torch.cuda.get_device_name(0)}")
     
     # Report settings
     print("\n=== FID Score Calculator ===")
