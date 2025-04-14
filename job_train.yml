@@ -75,8 +75,8 @@ spec:
             --dataroot cyclegan_dataset_256_split/ \
             --name healthy2unhealthy_cyclegan \
             --model cycle_gan \
-            --batch_size 1 \
-            --num_threads 1 \
+            --batch_size 64 \
+            --num_threads 16 \
             --n_epochs 100 \
             --n_epochs_decay 35 \
             --display_freq 10 \
