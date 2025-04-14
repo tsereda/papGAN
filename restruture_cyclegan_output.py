@@ -4,7 +4,8 @@ import argparse
 
 # Set up argument parser
 parser = argparse.ArgumentParser(description='Sort and rename image files')
-parser.add_argument('input_folder', type=str, help='Path to the folder containing images')
+parser.add_argument('--input_folder', type=str, required=True, 
+                    help='Path to the folder containing images')
 args = parser.parse_args()
 
 # Get absolute path of input folder
