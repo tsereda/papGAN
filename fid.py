@@ -75,7 +75,7 @@ def main():
     args = parser.parse_args()
     
     # Check if CUDA is available if requested
-    if args.device == "cuda" and not fid_score.check_cuda():
+    if args.device == "cuda":
         print("CUDA requested but not available. Falling back to CPU.")
         args.device = "cpu"
     

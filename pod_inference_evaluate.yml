@@ -30,7 +30,7 @@ spec:
       echo "Git repositories cloned."
       
       sudo apt-get update && sudo apt-get install -y p7zip-full
-      pip install dominate
+      pip install dominate pytorch_fid
       
       # --- Download dataset ---
       echo "Extracting..."
@@ -42,7 +42,8 @@ spec:
 
       python pytorch-CycleGAN-and-pix2pix/test.py   --dataroot ./cyclegan_dataset_256_split/test_healthy   --name unhealthy   --model test   --no_dropout   --num_test 20000   --results_dir ./results_20k   --direction AtoB
       
-
+      python fid.py   --real-healthy cyclegan_dataset_256_split/valA   --real-unhealthy cyclegan_dataset_256_split/valB   --generated results_20k/unhealthy/test_latest/images   --device cuda
+     
       sleep infinity
 
     volumeMounts:
