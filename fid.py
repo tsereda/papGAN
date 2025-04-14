@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 """
-FID Score Calculator
+FID Score Calculator using TorchMetrics
 
 This script calculates the Fréchet Inception Distance (FID) between sets of images.
 It compares generated images against real healthy and unhealthy image sets.
 """
 import torch
-from pytorch_fid import fid_score
+from torchmetrics.image.fid import FrechetInceptionDistance
 import os
 import argparse
 import sys
+from PIL import Image
+from torchvision import transforms
+from tqdm import tqdm
 
 def check_dir(path):
     """Check if directory exists and count files."""
@@ -28,8 +31,8 @@ def check_dir(path):
     
     return exists
 
-def calculate_fid(path1, path2, batch_size=1, device='cuda', dims=2048):
-    """Calculate FID between two image directories with additional debugging."""
+def calculate_fid(path1, path2, batch_size=32, device='cuda', feature_dim=2048):
+    """Calculate FID between two image directories using TorchMetrics."""
     if not (check_dir(path1) and check_dir(path2)):
         print(f"Error: One or both directories do not exist!")
         return None
@@ -37,14 +40,69 @@ def calculate_fid(path1, path2, batch_size=1, device='cuda', dims=2048):
     try:
         print(f"\nCalculating FID between {path1} and {path2}...")
         
-        # Use the original function instead of trying to split it
-        fid = fid_score.calculate_fid_given_paths(
-            [path1, path2],
-            batch_size=batch_size,
-            device=device,
-            dims=dims
-        )
-        return fid
+        # Initialize FID metric
+        fid = FrechetInceptionDistance(feature=feature_dim).to(device)
+        
+        # Get lists of image files
+        path1_files = [os.path.join(path1, f) for f in os.listdir(path1) 
+                      if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tiff'))]
+        path2_files = [os.path.join(path2, f) for f in os.listdir(path2) 
+                      if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tiff'))]
+        
+        # Image transformation pipeline
+        transform = transforms.Compose([
+            transforms.Resize((299, 299)),  # InceptionV3 input size
+            transforms.ToTensor(),
+        ])
+        
+        # Process images from path1 (real) in batches
+        print(f"Processing images from {path1}...")
+        for i in tqdm(range(0, len(path1_files), batch_size)):
+            batch_files = path1_files[i:i+batch_size]
+            batch_images = []
+            
+            for img_path in batch_files:
+                try:
+                    img = Image.open(img_path).convert('RGB')
+                    img_tensor = transform(img)
+                    batch_images.append(img_tensor)
+                except Exception as e:
+                    print(f"Error processing {img_path}: {e}")
+                    continue
+            
+            if batch_images:
+                # Stack batch and convert to uint8 [0, 255]
+                batch_tensor = torch.stack(batch_images)
+                batch_tensor = (batch_tensor * 255).to(torch.uint8).to(device)
+                fid.update(batch_tensor, real=True)
+        
+        # Process images from path2 (generated) in batches
+        print(f"Processing images from {path2}...")
+        for i in tqdm(range(0, len(path2_files), batch_size)):
+            batch_files = path2_files[i:i+batch_size]
+            batch_images = []
+            
+            for img_path in batch_files:
+                try:
+                    img = Image.open(img_path).convert('RGB')
+                    img_tensor = transform(img)
+                    batch_images.append(img_tensor)
+                except Exception as e:
+                    print(f"Error processing {img_path}: {e}")
+                    continue
+            
+            if batch_images:
+                # Stack batch and convert to uint8 [0, 255]
+                batch_tensor = torch.stack(batch_images)
+                batch_tensor = (batch_tensor * 255).to(torch.uint8).to(device)
+                fid.update(batch_tensor, real=False)
+        
+        # Compute FID score
+        print("Computing FID score...")
+        score = fid.compute().item()
+        print(f"FID score: {score:.4f}")
+        return score
+        
     except Exception as e:
         print(f"Error calculating FID: {e}")
         import traceback
@@ -64,8 +122,8 @@ def main():
     parser.add_argument("--generated", type=str, required=True,
                         help="Path to directory with generated images")
     
-    parser.add_argument("--batch-size", type=int, default=1,
-                        help="Batch size for FID calculation (default: 1)")
+    parser.add_argument("--batch-size", type=int, default=32,
+                        help="Batch size for FID calculation (default: 32)")
     
     parser.add_argument("--device", type=str, default="cuda",
                         help="Device to use for calculation: 'cuda' or 'cpu' (default: cuda)")
@@ -78,9 +136,8 @@ def main():
     
     args = parser.parse_args()
     
-# Check if CUDA is available if requested
+    # Check if CUDA is available if requested
     if args.device == "cuda":
-        import torch
         if not torch.cuda.is_available():
             print("CUDA requested but not available. Falling back to CPU.")
             args.device = "cpu"
@@ -88,7 +145,7 @@ def main():
             print(f"CUDA is available. Using GPU: {torch.cuda.get_device_name(0)}")
     
     # Report settings
-    print("\n=== FID Score Calculator ===")
+    print("\n=== FID Score Calculator (TorchMetrics) ===")
     print(f"Real healthy images: {args.real_healthy}")
     print(f"Real unhealthy images: {args.real_unhealthy}")
     print(f"Generated images: {args.generated}")
@@ -102,7 +159,7 @@ def main():
         args.generated,
         batch_size=args.batch_size,
         device=args.device,
-        dims=args.dims
+        feature_dim=args.dims
     )
     
     # Calculate FID vs real unhealthy images (B)
@@ -111,7 +168,7 @@ def main():
         args.generated,
         batch_size=args.batch_size,
         device=args.device,
-        dims=args.dims
+        feature_dim=args.dims
     )
     
     # Print results

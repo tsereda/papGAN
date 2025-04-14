@@ -43,8 +43,9 @@ spec:
       python3 restruture_cyclegan_output.py --input_folder results_20k/unhealthy/test_latest/images/
       python pytorch-CycleGAN-and-pix2pix/test.py   --dataroot ./cyclegan_dataset_256_split/test_healthy   --name unhealthy   --model test   --no_dropout   --num_test 1162   --results_dir ./results_20k   --direction AtoB
       
-      python fid.py --real-healthy cyclegan_dataset_256_split/valA   --real-unhealthy cyclegan_dataset_256_split/valB   --generated results_20k/unhealthy/test_latest/generated   --device cuda
-     
+      pip install torchmetrics[image] tqdm pillow
+
+      python fid_torchmetrics.py --real-healthy cyclegan_dataset_256_split/valA --real-unhealthy cyclegan_dataset_256_split/valB --generated results_20k/unhealthy/test_latest/generated --device cuda
       sleep infinity
 
     volumeMounts:
