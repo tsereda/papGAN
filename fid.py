@@ -4,6 +4,7 @@ FID Score Calculator using TorchMetrics
 
 This script calculates the Fréchet Inception Distance (FID) between sets of images.
 It compares generated images against real healthy and unhealthy image sets.
+Results are saved to a file.
 """
 import torch
 from torchmetrics.image.fid import FrechetInceptionDistance
@@ -13,6 +14,7 @@ import sys
 from PIL import Image
 from torchvision import transforms
 from tqdm import tqdm
+import datetime
 
 def check_dir(path):
     """Check if directory exists and count files."""
@@ -109,6 +111,46 @@ def calculate_fid(path1, path2, batch_size=32, device='cuda', feature_dim=2048):
         traceback.print_exc()
         return None
 
+def save_results_to_file(output_file, healthy_path, unhealthy_path, generated_path, 
+                        fid_vs_healthy, fid_vs_unhealthy, args):
+    """Save FID results to a file."""
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    with open(output_file, 'w') as f:
+        f.write(f"=== FID Score Results ===\n")
+        f.write(f"Date and Time: {timestamp}\n\n")
+        
+        f.write("=== Settings ===\n")
+        f.write(f"Real healthy images: {healthy_path}\n")
+        f.write(f"Real unhealthy images: {unhealthy_path}\n")
+        f.write(f"Generated images: {generated_path}\n")
+        f.write(f"Device: {args.device}\n")
+        f.write(f"Batch size: {args.batch_size}\n")
+        f.write(f"Feature dimensions: {args.dims}\n\n")
+        
+        f.write("=== Results ===\n")
+        if fid_vs_healthy is not None:
+            f.write(f"FID vs healthy (A): {fid_vs_healthy:.4f}\n")
+        else:
+            f.write("FID vs healthy (A): Failed to calculate\n")
+        
+        if fid_vs_unhealthy is not None:
+            f.write(f"FID vs unhealthy (B): {fid_vs_unhealthy:.4f}\n\n")
+        else:
+            f.write("FID vs unhealthy (B): Failed to calculate\n\n")
+        
+        # Analysis
+        if fid_vs_healthy is not None and fid_vs_unhealthy is not None:
+            f.write("=== Analysis ===\n")
+            if fid_vs_healthy < fid_vs_unhealthy:
+                f.write(f"The generated images are more similar to healthy images (A) by {fid_vs_unhealthy - fid_vs_healthy:.4f} FID points\n")
+            elif fid_vs_unhealthy < fid_vs_healthy:
+                f.write(f"The generated images are more similar to unhealthy images (B) by {fid_vs_healthy - fid_vs_unhealthy:.4f} FID points\n")
+            else:
+                f.write("The generated images are equally similar to both healthy and unhealthy images\n")
+    
+    print(f"\nResults saved to: {output_file}")
+
 def main():
     # Parse command line arguments
     parser = argparse.ArgumentParser(description="Calculate FID scores between image sets")
@@ -134,6 +176,9 @@ def main():
     parser.add_argument("--verbose", action="store_true",
                         help="Enable verbose output")
     
+    parser.add_argument("--output", type=str, default="fid_results.txt",
+                        help="Output file to save results (default: fid_results.txt)")
+    
     args = parser.parse_args()
     
     # Check if CUDA is available if requested
@@ -152,6 +197,7 @@ def main():
     print(f"Device: {args.device}")
     print(f"Batch size: {args.batch_size}")
     print(f"Feature dimensions: {args.dims}")
+    print(f"Output file: {args.output}")
     
     # Calculate FID vs real healthy images (A)
     fid_vs_healthy = calculate_fid(
@@ -188,6 +234,17 @@ def main():
             print(f"The generated images are more similar to unhealthy images (B) by {fid_vs_healthy - fid_vs_unhealthy:.4f} FID points")
         else:
             print("The generated images are equally similar to both healthy and unhealthy images")
+    
+    # Save results to file
+    save_results_to_file(
+        args.output,
+        args.real_healthy,
+        args.real_unhealthy,
+        args.generated,
+        fid_vs_healthy,
+        fid_vs_unhealthy,
+        args
+    )
 
 if __name__ == "__main__":
     main()
