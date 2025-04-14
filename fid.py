@@ -37,20 +37,13 @@ def calculate_fid(path1, path2, batch_size=1, device='cuda', dims=2048):
     try:
         print(f"\nCalculating FID between {path1} and {path2}...")
         
-        # Get statistics for both paths separately to identify which one might be causing issues
-        m1, s1 = fid_score.calculate_activation_statistics([path1], batch_size, device, dims)
-        print(f"Statistics for {path1} calculated successfully")
-        
-        m2, s2 = fid_score.calculate_activation_statistics([path2], batch_size, device, dims)
-        print(f"Statistics for {path2} calculated successfully")
-        
-        # Add small epsilon to diagonal of covariance matrices for numerical stability
-        eps = 1e-6
-        s1.flat[::s1.shape[0] + 1] += eps
-        s2.flat[::s2.shape[0] + 1] += eps
-        
-        # Calculate FID score with stabilized matrices
-        fid = fid_score.calculate_frechet_distance(m1, s1, m2, s2)
+        # Use the original function instead of trying to split it
+        fid = fid_score.calculate_fid_given_paths(
+            [path1, path2],
+            batch_size=batch_size,
+            device=device,
+            dims=dims
+        )
         return fid
     except Exception as e:
         print(f"Error calculating FID: {e}")
