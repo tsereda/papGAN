@@ -6,14 +6,6 @@ This script calculates the Fréchet Inception Distance (FID) between sets of ima
 It compares generated images against real healthy and unhealthy image sets.
 """
 import torch
-import sys
-print(f"Python path: {sys.executable}")
-print(f"PyTorch version: {torch.__version__}")
-print(f"CUDA available in script: {torch.cuda.is_available()}")
-if torch.cuda.is_available():
-    print(f"CUDA devices: {torch.cuda.device_count()}")
-    print(f"CUDA device name: {torch.cuda.get_device_name(0)}")
-    
 from pytorch_fid import fid_score
 import os
 import argparse
@@ -37,22 +29,33 @@ def check_dir(path):
     return exists
 
 def calculate_fid(path1, path2, batch_size=1, device='cuda', dims=2048):
-    """Calculate FID between two image directories."""
+    """Calculate FID between two image directories with additional debugging."""
     if not (check_dir(path1) and check_dir(path2)):
         print(f"Error: One or both directories do not exist!")
         return None
     
     try:
         print(f"\nCalculating FID between {path1} and {path2}...")
-        fid = fid_score.calculate_fid_given_paths(
-            [path1, path2],
-            batch_size=batch_size,
-            device=device,
-            dims=dims
-        )
+        
+        # Get statistics for both paths separately to identify which one might be causing issues
+        m1, s1 = fid_score.calculate_activation_statistics([path1], batch_size, device, dims)
+        print(f"Statistics for {path1} calculated successfully")
+        
+        m2, s2 = fid_score.calculate_activation_statistics([path2], batch_size, device, dims)
+        print(f"Statistics for {path2} calculated successfully")
+        
+        # Add small epsilon to diagonal of covariance matrices for numerical stability
+        eps = 1e-6
+        s1.flat[::s1.shape[0] + 1] += eps
+        s2.flat[::s2.shape[0] + 1] += eps
+        
+        # Calculate FID score with stabilized matrices
+        fid = fid_score.calculate_frechet_distance(m1, s1, m2, s2)
         return fid
     except Exception as e:
         print(f"Error calculating FID: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 def main():
