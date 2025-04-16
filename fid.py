@@ -15,6 +15,7 @@ from PIL import Image
 from torchvision import transforms
 from tqdm import tqdm
 import datetime
+import random
 
 def check_dir(path):
     """Check if directory exists and count files."""
@@ -33,7 +34,7 @@ def check_dir(path):
     
     return exists
 
-def calculate_fid(path1, path2, batch_size=32, device='cuda', feature_dim=2048):
+def calculate_fid(path1, path2, batch_size=32, device='cuda', feature_dim=2048, validation=False, val_samples=50):
     """Calculate FID between two image directories using TorchMetrics."""
     if not (check_dir(path1) and check_dir(path2)):
         print(f"Error: One or both directories do not exist!")
@@ -50,6 +51,15 @@ def calculate_fid(path1, path2, batch_size=32, device='cuda', feature_dim=2048):
                       if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tiff'))]
         path2_files = [os.path.join(path2, f) for f in os.listdir(path2) 
                       if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tiff'))]
+        
+        # Sample a subset of images if in validation mode
+        if validation:
+            print(f"VALIDATION MODE: Sampling {val_samples} images from each directory")
+            if len(path1_files) > val_samples:
+                path1_files = random.sample(path1_files, val_samples)
+            if len(path2_files) > val_samples:
+                path2_files = random.sample(path2_files, val_samples)
+            print(f"Using {len(path1_files)} images from directory 1 and {len(path2_files)} images from directory 2")
         
         # Image transformation pipeline
         transform = transforms.Compose([
@@ -126,7 +136,12 @@ def save_results_to_file(output_file, healthy_path, unhealthy_path, generated_pa
         f.write(f"Generated images: {generated_path}\n")
         f.write(f"Device: {args.device}\n")
         f.write(f"Batch size: {args.batch_size}\n")
-        f.write(f"Feature dimensions: {args.dims}\n\n")
+        f.write(f"Feature dimensions: {args.dims}\n")
+        f.write(f"Validation mode: {args.validation}\n")
+        if args.validation:
+            f.write(f"Validation samples: {args.val_samples}\n\n")
+        else:
+            f.write("\n")
         
         f.write("=== Results ===\n")
         if fid_vs_healthy is not None:
@@ -179,6 +194,12 @@ def main():
     parser.add_argument("--output", type=str, default="fid_results.txt",
                         help="Output file to save results (default: fid_results.txt)")
     
+    parser.add_argument("--validation", action="store_true",
+                        help="Run in validation mode with fewer samples for faster execution")
+    
+    parser.add_argument("--val-samples", type=int, default=50,
+                        help="Number of images to sample in validation mode (default: 50)")
+    
     args = parser.parse_args()
     
     # Check if CUDA is available if requested
@@ -199,13 +220,19 @@ def main():
     print(f"Feature dimensions: {args.dims}")
     print(f"Output file: {args.output}")
     
+    if args.validation:
+        print(f"\n*** RUNNING IN VALIDATION MODE ***")
+        print(f"Using only {args.val_samples} images from each directory for quick testing")
+    
     # Calculate FID vs real healthy images (A)
     fid_vs_healthy = calculate_fid(
         args.real_healthy, 
         args.generated,
         batch_size=args.batch_size,
         device=args.device,
-        feature_dim=args.dims
+        feature_dim=args.dims,
+        validation=args.validation,
+        val_samples=args.val_samples
     )
     
     # Calculate FID vs real unhealthy images (B)
@@ -214,7 +241,9 @@ def main():
         args.generated,
         batch_size=args.batch_size,
         device=args.device,
-        feature_dim=args.dims
+        feature_dim=args.dims,
+        validation=args.validation,
+        val_samples=args.val_samples
     )
     
     # Print results
