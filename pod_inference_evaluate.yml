@@ -38,14 +38,16 @@ spec:
       tar -x -I "zstd -d -T0" -f /data/cyclegan_processed_data.tar.zst -C ${REPO_PATH}
       mkdir checkpoints
       mkdir checkpoints/unhealthy
-      cp /data/latest_net_G_A.pth checkpoints/unhealthy/latest_net_G.pth
+      cp /data/latest_net_G_B.pth checkpoints/unhealthy/latest_net_G.pth
 
-      python3 restruture_cyclegan_output.py --input_folder results_20k/unhealthy/test_latest/images/
+
       python pytorch-CycleGAN-and-pix2pix/test.py   --dataroot ./cyclegan_dataset_256_split/test_healthy   --name unhealthy   --model test   --no_dropout   --num_test 1162   --results_dir ./results_20k   --direction AtoB
-      
+      python3 restruture_cyclegan_output.py --input_folder results_20k/unhealthy/test_latest/images/
+
       pip install torchmetrics[image] tqdm pillow
 
       python fid.py --real-healthy cyclegan_dataset_256_split/valA --real-unhealthy cyclegan_dataset_256_split/valB --generated results_20k/unhealthy/test_latest/generated --device cuda --batch-size 64
+      cp fid_results.txt /data/fid_results.txt
       sleep infinity
 
     volumeMounts:
