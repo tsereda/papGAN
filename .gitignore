@@ -6,3 +6,5 @@ preprocessing/5_split.py
 cyclegan_dataset_256_split/
 logs/
 checkpoints/
+generated_1000_unhealthy_FID_63.9.zip
+comparison_results.png

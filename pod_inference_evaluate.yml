@@ -45,7 +45,7 @@ spec:
       python3 restruture_cyclegan_output.py --input_folder results_20k/unhealthy/test_latest/images/
 
       pip install torchmetrics[image] tqdm pillow
-      python comparison_visualizer.py --num_examples 8 --output_path /data/comparison_results.png
+      python comparison_visualizer.py --input_dir results_20k/unhealthy/test_latest/input --generated_dir results_20k/unhealthy/test_latest/generated --num_examples 8 --output_path /data/comparison_results.png
       python fid.py --real-healthy cyclegan_dataset_256_split/valA --real-unhealthy cyclegan_dataset_256_split/valB --generated results_20k/unhealthy/test_latest/generated --device cuda --batch-size 64
       #python fid.py --real-healthy cyclegan_dataset_256_split/valA --real-unhealthy cyclegan_dataset_256_split/valB --generated results_20k/unhealthy/test_latest/generated --device cuda --batch-size 64 --validation --val-samples 20
       cp fid_results.txt /data/fid_results.txt

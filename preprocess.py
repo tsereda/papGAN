@@ -281,7 +281,7 @@ def augment_create_matched(args, stats=None):
     print("Sorting results by size similarity...")
     sorted_healthy = sorted(healthy_matches, key=lambda x: x[0])
     selected_healthy = [f for _, f in sorted_healthy[:trainB_count]]
-    test_healthy_files = [f for _, f in sorted_healthy[trainB_count:trainB_count+1000]]  # Limit test set size
+    test_healthy_files = [f for _, f in sorted_healthy[trainB_count:trainB_count+10000]]
     
     # Prepare file copy tasks
     train_tasks = [(src, i, 'healthy', trainA) for i, src in enumerate(selected_healthy)]
