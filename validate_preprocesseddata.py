@@ -79,7 +79,7 @@ def main():
             errors.append(warning_msg)
             all_ok = False
         else:
-            print(f"{path_to_check:<40} {'OK':<15} {file_count:<10}")
+            print(f"{path_to_check:<45} {'OK':<15} {file_count:<10}")
 
     # Now check the parent directory
     parent_dir = os.path.join(base_dir, "cyclegan_dataset_256_split")
