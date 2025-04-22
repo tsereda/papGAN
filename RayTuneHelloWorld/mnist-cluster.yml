@@ -1,0 +1,60 @@
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: mnist-raycluster
+spec:
+  rayVersion: '2.9.0'
+  headGroupSpec:
+    serviceType: ClusterIP
+    rayStartParams:
+      dashboard-host: '0.0.0.0'
+    template:
+      spec:
+        containers:
+        - name: ray-head
+          image: rayproject/ray:2.9.0-py310-gpu
+          ports:
+          - containerPort: 6379
+            name: gcs
+          - containerPort: 8265
+            name: dashboard
+          - containerPort: 10001
+            name: client
+          env:
+          - name: WANDB_API_KEY
+            valueFrom:
+              secretKeyRef:
+                name: wandb-credentials
+                key: api-key
+          resources:
+            limits:
+              cpu: 2
+              memory: 4Gi
+            requests:
+              cpu: 1
+              memory: 2Gi
+  workerGroupSpecs:
+  - groupName: gpu-workers
+    replicas: 2
+    # Add this section - required by KubeRay
+    rayStartParams: {}
+    template:
+      spec:
+        containers:
+        - name: ray-worker
+          image: rayproject/ray:2.9.0-py310-gpu
+          env:
+          - name: WANDB_API_KEY
+            valueFrom:
+              secretKeyRef:
+                name: wandb-credentials
+                key: api-key
+          resources:
+            limits:
+              cpu: 4
+              memory: 8Gi
+              nvidia.com/gpu: 1
+            requests:
+              cpu: 2
+              memory: 4Gi
+              nvidia.com/gpu: 1

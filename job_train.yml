@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: pap-train-job
+  name: pap-end-to-end-job
 spec:
   backoffLimit: 0
   template:
@@ -11,13 +11,12 @@ spec:
         runAsGroup: 100
         fsGroup: 100
       containers:
-      # --- Main Training Container ---
+      # --- Main Container for end-to-end pipeline ---
       - name: pap-processing
         image: gitlab-registry.nrp-nautilus.io/prp/jupyter-stack/prp
         env:
         - name: REPO_PATH
-          value: /opt/repo/papGAN
-        # --- Visdom Server Configuration ---
+          value: /app/papGAN
         - name: VISDOM_SERVER
           value: "http://localhost"
         - name: VISDOM_PORT
@@ -44,41 +43,55 @@ spec:
 
           # --- Git Repository Setup ---
           echo "Setting up Git repository..."
+          cd /app
+          git clone --single-branch -b main https://github.com/tsereda/papGAN
           cd ${REPO_PATH}
-          git pull origin main || echo "Repository already exists, continuing"
+          
           # --- Install dependencies ---
           echo "Installing required dependencies..."
-          pip install dominate visdom wandb --no-cache-dir
-
+          pip install dominate visdom wandb pytorch_fid torchmetrics[image] tqdm pillow --no-cache-dir
+          
           # --- Clone CycleGAN repository ---
           echo "Cloning CycleGAN repository..."
           git clone https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix.git
+          
           # --- Install CycleGAN requirements ---
           echo "Installing CycleGAN requirements..."
           pip install -r ${REPO_PATH}/pytorch-CycleGAN-and-pix2pix/requirements.txt
-          # --- Extract with fast zstd decompression ---
-          apt-get update && apt-get install -y zstd
+          
+          # --- Update system packages ---
+          apt-get update && apt-get install -y zstd p7zip-full
+          
+          # --- STEP 1: PREPROCESSING ---
           echo "Extracting preprocessed data..."
           mkdir -p ${REPO_PATH}/cyclegan_dataset_256_split
-          echo "/data/"
+          echo "Listing data directory:"
           ls -lh /data/
+          
           if [ -f "/data/cyclegan_processed_data.tar.zst" ]; then
             echo "Preprocessed data file found, extracting..."
             tar -x -I "zstd -d -T0" -f /data/cyclegan_processed_data.tar.zst -C ${REPO_PATH}
           else
             echo "Preprocessed data file not found, skipping extraction"
+            exit 1
           fi
-          # --- Run training ---
+          
+          # --- Validate preprocessing ---
+          echo "Validating preprocessed data..."
+          cd ${REPO_PATH}
+          python3 validate_preprocesseddata.py
+          
+          # --- STEP 2: TRAINING ---
           echo "Starting CycleGAN training..."
           cd ${REPO_PATH}
           python3 pytorch-CycleGAN-and-pix2pix/train.py \
             --dataroot cyclegan_dataset_256_split/ \
             --name healthy2unhealthy_cyclegan \
             --model cycle_gan \
-            --batch_size 64 \
+            --batch_size 32 \
             --num_threads 16 \
-            --n_epochs 100 \
-            --n_epochs_decay 35 \
+            --n_epochs 2 \
+            --n_epochs_decay 1 \
             --display_freq 10 \
             --print_freq 100 \
             --lambda_B 7.5 \
@@ -86,16 +99,47 @@ spec:
             --display_id 1 \
             --display_server "localhost" \
             --display_port "${VISDOM_PORT}" \
-            --display_env "cyclegan_pap_training" # Optional: name for the Visdom environment
+            --display_env "cyclegan_pap_training"
 
           echo "Training completed successfully."
 
+          # --- Save generator weights ---
           echo "Copying generator weights to PVC"
-          cp /opt/repo/papGAN/checkpoints/healthy2unhealthy_cyclegan/latest_net_G_A.pth /data/latest_net_G_A.pth
-          cp /opt/repo/papGAN/checkpoints/healthy2unhealthy_cyclegan/latest_net_G_B.pth /data/latest_net_G_B.pth
+          cp ${REPO_PATH}/checkpoints/healthy2unhealthy_cyclegan/latest_net_G_A.pth /data/latest_net_G_A.pth
+          cp ${REPO_PATH}/checkpoints/healthy2unhealthy_cyclegan/latest_net_G_B.pth /data/latest_net_G_B.pth
+          
+          # --- STEP 3: EVALUATION ---
+          echo "Preparing for evaluation..."
+          mkdir -p ${REPO_PATH}/checkpoints/unhealthy
+          cp /data/latest_net_G_A.pth ${REPO_PATH}/checkpoints/unhealthy/latest_net_G.pth
+          
+          echo "Running evaluation..."
+          cd ${REPO_PATH}
+          python pytorch-CycleGAN-and-pix2pix/test.py \
+            --dataroot ./cyclegan_dataset_256_split/test_healthy \
+            --name unhealthy \
+            --model test \
+            --no_dropout \
+            --num_test 1162 \
+            --results_dir ./results_20k \
+            --direction AtoB
+          
+          python3 restruture_cyclegan_output.py --input_folder results_20k/unhealthy/test_latest/images/
+          
+          python fid.py \
+            --real-healthy cyclegan_dataset_256_split/valA \
+            --real-unhealthy cyclegan_dataset_256_split/valB \
+            --generated results_20k/unhealthy/test_latest/generated \
+            --device cuda \
+            --batch-size 64
+          
+          # --- Save evaluation results ---
+          cp fid_results.txt /data/fid_results.txt
+          
+          echo "End-to-end pipeline completed successfully!"
         volumeMounts:
         - name: git-repo
-          mountPath: /opt/repo
+          mountPath: /app
         - name: pap-data-volume
           mountPath: /data
         - name: dshm
@@ -104,11 +148,11 @@ spec:
           limits:
             memory: 30Gi
             cpu: "24"
-            nvidia.com/a100: "2"
+            nvidia.com/a100: "1"
           requests:
             memory: 25Gi
             cpu: "20"
-            nvidia.com/a100: "2"
+            nvidia.com/a100: "1"
 
       # --- Visdom Server Sidecar Container ---
       - name: visdom-server
@@ -117,42 +161,20 @@ spec:
         securityContext:
           runAsUser: 0
         args:
-          # Install visdom and start server (without specifying env_path)
           - |
             pip install visdom
             python -m visdom.server -port 8097
         ports:
         - containerPort: 8097
           name: visdom-ui
-        # No volumeMounts needed for logs
-        resources: # Give the sidecar some minimal resources
-          limits:
-            memory: 600Mi
-            cpu: 600m
-          requests:
-            memory: 500Mi
-            cpu: "500m"
-
-      initContainers:
-      - name: init-git-repo
-        image: alpine/git
-        args:
-        - clone
-        - --single-branch
-        - -b
-        - main
-        - https://github.com/tsereda/papGAN
-        - /opt/repo/papGAN
-        volumeMounts:
-        - name: git-repo
-          mountPath: /opt/repo
         resources:
           limits:
             memory: 600Mi
             cpu: 600m
           requests:
             memory: 500Mi
-            cpu: 500m  
+            cpu: "500m"
+            
       volumes:
       - name: git-repo
         emptyDir: {}
@@ -162,5 +184,5 @@ spec:
       - name: dshm
         emptyDir:
           medium: Memory
-          sizeLimit: 16Gi
+          sizeLimit: 20Gi
       restartPolicy: Never

@@ -1,0 +1,13 @@
+apiVersion: ray.io/v1
+kind: RayJob
+metadata:
+  name: mnist-tune-job
+spec:
+  entrypoint: |
+    pip install torch torchvision wandb
+    python /tmp/mnist_tune.py
+  shutdownAfterJobFinishes: true
+  ttlSecondsAfterFinished: 300
+  rayClusterSpec:
+    rayClusterRef:
+      name: mnist-raycluster
