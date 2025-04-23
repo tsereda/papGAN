@@ -8,6 +8,7 @@ spec:
     python /tmp/mnist_tune.py
   shutdownAfterJobFinishes: true
   ttlSecondsAfterFinished: 300
-  rayClusterSpec:
-    rayClusterRef:
+  # Use rayClusterSelector instead of rayClusterSpec.rayClusterRef
+  rayClusterSelector:
+    matchLabels:
       name: mnist-raycluster
