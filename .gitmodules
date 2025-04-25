@@ -1,0 +1,3 @@
+[submodule "pytorch-BraTS2020-unet-segmentation"]
+	path = pytorch-BraTS2020-unet-segmentation
+	url = https://github.com/tsereda/pytorch-BraTS2020-unet-segmentation
