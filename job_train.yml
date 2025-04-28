@@ -99,7 +99,10 @@ spec:
             --display_id 1 \
             --display_server "localhost" \
             --display_port "${VISDOM_PORT}" \
-            --display_env "cyclegan_pap_training"
+            --display_env "cyclegan_pap_training" \
+            --use_wandb \
+            --wandb_project_name "pap-cyclegan" \
+            --wandb_model_log
 
           echo "Training completed successfully."
 
