@@ -21,6 +21,11 @@ spec:
           value: "http://localhost"
         - name: VISDOM_PORT
           value: "8097"
+        - name: WANDB_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: wandb-credentials  # Replace with your actual secret name
+              key: api-key
         command:
         - "bash"
         - "-c"
@@ -28,18 +33,8 @@ spec:
         - |
           # --- User and Environment Setup ---
           echo "Running as user: $(whoami), UID: $(id -u), GID: $(id -g)"
-          echo "Visdom server configured at: ${VISDOM_SERVER}:${VISDOM_PORT}"
+          
 
-          # Wait for Visdom server to be ready
-          echo "Waiting for Visdom server to initialize..."
-          for i in {1..30}; do
-            if curl -s http://localhost:8097 > /dev/null; then
-              echo "Visdom server is ready"
-              break
-            fi
-            echo "Waiting for Visdom server... ($i/30)"
-            sleep 2
-          done
 
           # --- Git Repository Setup ---
           echo "Setting up Git repository..."
@@ -49,8 +44,10 @@ spec:
           
           # --- Install dependencies ---
           echo "Installing required dependencies..."
-          pip install dominate visdom wandb pytorch_fid torchmetrics[image] tqdm pillow --no-cache-dir
-          
+          pip install wandb dominate visdom wandb pytorch_fid torchmetrics[image] tqdm pillow --no-cache-dir
+          # Add to your script
+          python -c "import wandb; wandb.login(key='${WANDB_API_KEY}')"
+
           # --- Clone CycleGAN repository ---
           echo "Cloning CycleGAN repository..."
           git clone https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix.git
@@ -80,6 +77,20 @@ spec:
           echo "Validating preprocessed data..."
           cd ${REPO_PATH}
           python3 validate_preprocesseddata.py
+
+                    echo "Visdom server configured at: ${VISDOM_SERVER}:${VISDOM_PORT}"
+
+          # Wait for Visdom server to be ready
+          echo "Waiting for Visdom server to initialize..."
+          for i in {1..30}; do
+            if curl -s http://localhost:8097 > /dev/null; then
+              echo "Visdom server is ready"
+              break
+            fi
+            echo "Waiting for Visdom server... ($i/30)"
+            sleep 2
+          done
+          
           
           # --- STEP 2: TRAINING ---
           echo "Starting CycleGAN training..."
@@ -99,7 +110,8 @@ spec:
             --display_id 1 \
             --display_server "localhost" \
             --display_port "${VISDOM_PORT}" \
-            --display_env "cyclegan_pap_training"
+            --display_env "cyclegan_pap_training" \
+            --use_wandb
 
           echo "Training completed successfully."
 
