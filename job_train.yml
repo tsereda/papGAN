@@ -101,7 +101,7 @@ spec:
             --model cycle_gan \
             --batch_size 32 \
             --num_threads 16 \
-            --n_epochs 2 \
+            --n_epochs 5 \
             --n_epochs_decay 1 \
             --display_freq 10 \
             --print_freq 100 \
@@ -123,9 +123,10 @@ spec:
           # --- STEP 3: EVALUATION ---
           echo "Preparing for evaluation..."
           mkdir -p ${REPO_PATH}/checkpoints/unhealthy
-          cp /data/latest_net_G_A.pth ${REPO_PATH}/checkpoints/unhealthy/latest_net_G.pth
+          cp /data/latest_net_G_A.pth ${REPO_PATH}/checkpoints/unhealthy/latest_net_G_A.pth
+          cp /data/latest_net_G_B.pth ${REPO_PATH}/checkpoints/unhealthy/latest_net_G_B.pth
           
-          echo "Running evaluation..."
+          echo "Running evaluation AtoB ..."
           cd ${REPO_PATH}
           python pytorch-CycleGAN-and-pix2pix/test.py \
             --dataroot ./cyclegan_dataset_256_split/test_healthy \
@@ -135,6 +136,26 @@ spec:
             --num_test 1162 \
             --results_dir ./results_20k \
             --direction AtoB
+          
+          python3 restruture_cyclegan_output.py --input_folder results_20k/unhealthy/test_latest/images/
+          
+          python fid.py \
+            --real-healthy cyclegan_dataset_256_split/valA \
+            --real-unhealthy cyclegan_dataset_256_split/valB \
+            --generated results_20k/unhealthy/test_latest/generated \
+            --device cuda \
+            --batch-size 64
+
+          echo "Running evaluation... BtoA"
+          cd ${REPO_PATH}
+          python pytorch-CycleGAN-and-pix2pix/test.py \
+            --dataroot ./cyclegan_dataset_256_split/test_healthy \
+            --name unhealthy \
+            --model test \
+            --no_dropout \
+            --num_test 1162 \
+            --results_dir ./results_20k \
+            --direction BtoA
           
           python3 restruture_cyclegan_output.py --input_folder results_20k/unhealthy/test_latest/images/
           
